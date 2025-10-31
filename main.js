@@ -1,11 +1,10 @@
 const http = require('http');
-const fsp = require('fs/promises'); // Використовуємо fs.promises
-const fs = require('fs'); // Для синхронної перевірки/створення директорії при старті
+const fsp = require('fs/promises');
+const fs = require('fs');
 const path = require('path');
 const { program } = require('commander');
 const superagent = require('superagent');
 
-// --- 1. Налаштування Commander ---
 program
   .requiredOption('-h, --host <host>', 'Hostname for the server')
   .requiredOption('-p, --port <port>', 'port number for the server', parseInt)
@@ -17,7 +16,6 @@ const host = options.host;
 const port = options.port;
 const Cache_DIR = path.resolve(options.cache);
 
-// --- 2. Створення кеш-директорії (Синхронно при старті) ---
 try {
   if (!fs.existsSync(Cache_DIR)) {
     fs.mkdirSync(Cache_DIR, { recursive: true });
@@ -30,10 +28,9 @@ try {
   process.exit(1);
 }
 
-// --- 3. Допоміжна функція для отримання тіла запиту (для PUT) ---
 /**
  * Асинхронно зчитує тіло запиту і повертає його як Buffer.
- * @param {http.IncomingMessage} req - Об'єкт запиту
+ * @param {http.IncomingMessage} req 
  * @returns {Promise<Buffer>}
  */
 function getRequestBody(req) {
@@ -51,11 +48,7 @@ function getRequestBody(req) {
   });
 }
 
-// --- 4. Створення HTTP Сервера ---
 const server = http.createServer(async (req, res) => {
-  // Парсимо URL, щоб отримати код (наприклад, /200 -> "200")
-  // Регулярний вираз ^\/\d{3}$ означає: рядок починається з /, 
-  // за яким ідуть рівно 3 цифри, і на цьому рядок закінчується.
   const match = req.url.match(/^\/(\d{3})$/);
 
   if (!match) {
@@ -70,20 +63,20 @@ const server = http.createServer(async (req, res) => {
 
   try {
     switch (req.method) {
-      // --- GET: Отримати картинку ---
+      // --- GET
       case 'GET':
         try {
-          // 1. Спробувати прочитати з кешу
+          // Спроба прочитати з кешу
           const fileData = await fsp.readFile(filePath);
           console.log(`[CACHE HIT] Віддаю ${statusCode} з кешу.`);
           res.writeHead(200, { 'Content-Type': 'image/jpeg' });
           res.end(fileData);
         } catch (cacheError) {
-          // 2. Якщо в кеші немає (ENOENT - Error NO ENTry)
+          // Якщо в кеші немає (ENOENT - Error NO ENTry)
           if (cacheError.code === 'ENOENT') {
             console.log(`[CACHE MISS] Файл ${statusCode} не знайдено. Роблю запит до https://http.cat/${statusCode}`);
             try {
-              // 3. Робимо запит до http.cat
+              // запит до http.cat
               const httpCatUrl = `https://http.cat/${statusCode}`;
               const response = await superagent
                 .get(httpCatUrl)
@@ -91,15 +84,14 @@ const server = http.createServer(async (req, res) => {
 
               const imageData = response.body;
 
-              // 4. Зберігаємо в кеш АСИНХРОННО
+              // Зберігаємо в кеш АСИНХРОННО
               await fsp.writeFile(filePath, imageData);
               console.log(`[CACHE SET] Збережено ${statusCode} в кеш.`);
 
-              // 5. Віддаємо картинку користувачу
+              // Віддаємо картинку користувачу
               res.writeHead(200, { 'Content-Type': 'image/jpeg' });
               res.end(imageData);
             } catch (fetchError) {
-              // 6. Якщо http.cat повернув помилку (наприклад, 404 для коду 999)
               console.error(`[FETCH ERROR] Не вдалося отримати ${statusCode} з http.cat: ${fetchError.message}`);
               res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
               res.end('Not Found: Зображення не знайдено ні в кеші, ні на http.cat.');
@@ -111,7 +103,6 @@ const server = http.createServer(async (req, res) => {
         }
         break;
 
-      // --- PUT: Записати/оновити картинку ---
       case 'PUT':
         const requestBody = await getRequestBody(req);
         await fsp.writeFile(filePath, requestBody);
@@ -120,7 +111,6 @@ const server = http.createServer(async (req, res) => {
         res.end(`[Created] Зображення для коду ${statusCode} збережено.`);
         break;
 
-      // --- DELETE: Видалити картинку ---
       case 'DELETE':
         try {
           await fsp.unlink(filePath);
@@ -145,14 +135,14 @@ const server = http.createServer(async (req, res) => {
         res.end('Method Not Allowed');
     }
   } catch (error) {
-    // Загальний обробник помилок (наприклад, помилка EACCES - відмовлено в доступі)
+    // Загальний обробник помилок
     console.error(`[SERVER ERROR] ${error.message}`);
     res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Internal Server Error');
   }
 });
 
-// --- 5. Запуск Сервера ---
+// Запуск Сервера ---
 server.listen(port, host, () => {
   console.log(`[INFO] Сервер успішно запущено на http://${host}:${port}`);
 });
